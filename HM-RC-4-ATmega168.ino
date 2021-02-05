@@ -25,7 +25,7 @@
 #include <AskSinPP.h>
 #include <MultiChannelDevice.h>
 #include <Button.h>
-#include <Remote.h>
+#include <Register.h>
 #include "KeypadButton.h"
 using namespace as;
 
@@ -62,8 +62,62 @@ typedef Radio<SPIType, 2, CC1101_PWR_PIN> RadioType;
 typedef DualStatusLed<LED_PIN, LED_PIN2> LedType;
 typedef AskSin<LedType, IrqInternalBatt, RadioType> Hal;
 
-typedef RemoteChannel<Hal, PEERS_PER_CHANNEL, List0> ChannelType;
-typedef MultiChannelDevice<Hal, ChannelType, 4> RemoteType;
+DEFREGISTER(RemoteReg1, CREG_LONGPRESSTIME, CREG_AES_ACTIVE, CREG_DOUBLEPRESSTIME)
+class RemoteList1 : public RegList1<RemoteReg1> {
+  public:
+    RemoteList1 (uint16_t addr) : RegList1<RemoteReg1>(addr) {}
+    void defaults () {
+      clear();
+      longPressTime(1);
+      // aesActive(false);
+      // doublePressTime(0);
+    }
+};
+
+class KeyPadRemoteChannel : public Channel<Hal, RemoteList1, EmptyList, DefList4, PEERS_PER_CHANNEL, List0>, public KeypadButton {
+  private:
+    uint8_t       repeatcnt;
+  public:
+
+    typedef Channel<Hal, RemoteList1, EmptyList, DefList4, PEERS_PER_CHANNEL, List0> BaseChannel;
+
+    KeyPadRemoteChannel () : BaseChannel(), repeatcnt(0) {}
+    virtual ~KeyPadRemoteChannel () {}
+
+    KeypadButton& button () {
+      return *(KeypadButton*)this;
+    }
+
+    uint8_t status () const {
+      return 0;
+    }
+
+    uint8_t flags () const {
+      return 0;
+    }
+
+    virtual void state(uint8_t s) {
+      KeypadButton::state(s);
+      RemoteEventMsg& msg = (RemoteEventMsg&)this->device().message();
+      msg.init(this->device().nextcount(), this->number(), repeatcnt, (s == longreleased || s == longpressed), this->device().battery().low());
+      if ( s == released || s == longreleased) {
+        repeatcnt++;
+      }
+      else if (s == longpressed) {
+        this->device().broadcastPeerEvent(msg, *this);
+      }
+    }
+
+    bool configChanged() {
+      //we have to add 300ms to the value set in CCU!
+      uint16_t _longpressTime = 300 + (this->getList1().longPressTime() * 100);
+      //DPRINT("longpressTime = ");DDECLN(_longpressTime);
+      setLongPressTime(millis2ticks(_longpressTime));
+      return true;
+    }
+};
+
+typedef MultiChannelDevice<Hal, KeyPadRemoteChannel, 4> RemoteType;
 
 Hal hal;
 RemoteType sdev(devinfo, 0x20);
