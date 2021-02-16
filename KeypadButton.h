@@ -93,7 +93,7 @@ class KeypadButton: public Alarm {
       return stat;
     }
 
-    void check(bool b) {
+    virtual void check(bool b) {
       uint8_t ps = b;
       if ( pinstate != ps ) {
         pinstate = ps;
